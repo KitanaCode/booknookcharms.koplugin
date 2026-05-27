@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+ width="96" height="156"
+ viewBox="0 0 96 156"
+ preserveAspectRatio="xMidYMin meet">
+<path d="M 4 0 L 92 0 Q 96 0 96 4 L 96 156 L 48 118 L 0 156 L 0 4 Q 0 0 4 0 Z"
+ fill="#c49a3c"
+ stroke="#6b511d"
+ stroke-width="4"
+ stroke-linejoin="round"/>
+</svg>
