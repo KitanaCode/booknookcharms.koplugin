@@ -35,6 +35,18 @@ koreader/plugins/booknookcharms.koplugin/
 - See small text previews beside charm names in the menus.
 - Add your own charm files later.
 
+🖼️ Screenshots
+
+![Book Nook Charms menu](screenshots/menu.png)
+
+![Typesetting menu placement](screenshots/typesetting-menu.png)
+
+![Charm Studio with a dog-ear charm](screenshots/charm-studio-dogear.png)
+
+![Charm Studio with a ribbon charm](screenshots/charm-studio-ribbon.png)
+
+![Reader gesture actions](screenshots/gestures.png)
+
 ✨ Main Menu
 
 Charm Studio ✨      resize, nudge, and place your charm
@@ -163,4 +175,3 @@ Cat bookmarks are created by u/AggravatingDebt4621 from Reddit.
 📄 License
 
 Released under the MIT License. See `LICENSE` for details.
-
