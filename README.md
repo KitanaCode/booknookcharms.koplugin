@@ -4,6 +4,12 @@ Book Nook Charms is a cozy little KOReader plugin that lets you decorate your re
 
 Pick a ribbon, tuck a dog-ear into the corner, save your favorites, switch between day and night looks, or choose a grayscale e-ink charm made for black-and-white readers.
 
+🍵 Support
+
+If you enjoy my KOReader plugins and want to support future updates, you can buy me a coffee on Ko-fi. Your support helps fuel my curiosity and drive to make the KOReader experience more fun and personal.
+
+[Support me on Ko-fi](https://ko-fi.com/kitanacode)
+
 📱 Compatibility
 
 Book Nook Charms is made for KOReader and designed with Kobo readers in mind.
