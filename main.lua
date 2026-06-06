@@ -42,6 +42,41 @@ local _ = require("gettext")
 
 local Screen = Device.screen
 
+local function screenScaleBySize(size)
+    if Screen and Screen.scaleBySize then
+        return Screen:scaleBySize(size)
+    end
+    return size
+end
+
+local function safeRegisterAction(name, spec)
+    if not Dispatcher or not Dispatcher.registerAction then
+        logger.warn("BookNookCharms: gesture action registration is unavailable on this KOReader build")
+        return false
+    end
+    local ok, err = pcall(function()
+        Dispatcher:registerAction(name, spec)
+    end)
+    if not ok then
+        logger.warn("BookNookCharms: could not register action", name, err)
+    end
+    return ok
+end
+
+local function safeRegisterMainMenu(plugin)
+    if not plugin.ui or not plugin.ui.menu or not plugin.ui.menu.registerToMainMenu then
+        logger.warn("BookNookCharms: main menu registration is unavailable on this KOReader build")
+        return false
+    end
+    local ok, err = pcall(function()
+        plugin.ui.menu:registerToMainMenu(plugin)
+    end)
+    if not ok then
+        logger.warn("BookNookCharms: could not register main menu", err)
+    end
+    return ok
+end
+
 -- Settings key constants
 local S_CUSTOM_ICON      = "bookmarkchrome_custom_icon"
 local S_CUSTOM_ICON_NAME = "bookmarkchrome_custom_icon_name"
@@ -50,6 +85,7 @@ local S_MARGIN_TOP       = "bookmarkchrome_margin_top"
 local S_MARGIN_RIGHT     = "bookmarkchrome_margin_right"
 local S_RECENT_DESIGNS   = "bookmarkchrome_recent_designs"
 local S_FAVORITE_DESIGNS = "booknookcharms_favorite_designs"
+local S_FAVORITE_INDEX   = "booknookcharms_favorite_index"
 local S_DEFAULT_ICON     = "booknookcharms_default_icon"
 local S_DEFAULT_ICON_NAME = "booknookcharms_default_icon_name"
 local S_DEFAULT_SCALE    = "booknookcharms_default_scale"
@@ -97,7 +133,7 @@ local DEFAULT_NEW_SELECTION_SCALE = 4.0
 local DEFAULT_RIBBON_RIGHT_STEPS = 5
 local DEFAULT_RIBBON_SELECTION_SCALE = 2.5
 local FIRST_RUN_DEFAULT_CHARM = "dogear_soft_original.svg"
-local PLUGIN_VERSION = "1.0.0"
+local PLUGIN_VERSION = "1.1.0"
 local PLUGIN_AUTHOR = "KitanaCode"
 
 local function isRibbonDesign(filename)
@@ -418,13 +454,16 @@ end
 function BookmarkChrome:resetAll()
     local default_icon = G_reader_settings:readSetting(S_DEFAULT_ICON)
     local default_name = G_reader_settings:readSetting(S_DEFAULT_ICON_NAME)
+    local resolved_name, resolved_path = self:resolveSavedDesign(default_icon, default_name)
 
-    if default_icon and default_name and lfs.attributes(default_icon, "mode") == "file" then
-        G_reader_settings:saveSetting(S_CUSTOM_ICON, default_icon)
-        G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, default_name)
-        G_reader_settings:saveSetting(S_SCALE_FACTOR, G_reader_settings:readSetting(S_DEFAULT_SCALE) or (isRibbonDesign(default_name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
+    if resolved_path and resolved_name then
+        G_reader_settings:saveSetting(S_DEFAULT_ICON, resolved_path)
+        G_reader_settings:saveSetting(S_DEFAULT_ICON_NAME, resolved_name)
+        G_reader_settings:saveSetting(S_CUSTOM_ICON, resolved_path)
+        G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, resolved_name)
+        G_reader_settings:saveSetting(S_SCALE_FACTOR, G_reader_settings:readSetting(S_DEFAULT_SCALE) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
         G_reader_settings:saveSetting(S_MARGIN_TOP, G_reader_settings:readSetting(S_DEFAULT_MARGIN_TOP) or 0)
-        G_reader_settings:saveSetting(S_MARGIN_RIGHT, G_reader_settings:readSetting(S_DEFAULT_MARGIN_RIGHT) or (isRibbonDesign(default_name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
+        G_reader_settings:saveSetting(S_MARGIN_RIGHT, G_reader_settings:readSetting(S_DEFAULT_MARGIN_RIGHT) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
     else
         if default_icon or default_name then
             G_reader_settings:delSetting(S_DEFAULT_ICON)
@@ -450,6 +489,17 @@ function BookmarkChrome:findDesignByName(filename, designs)
         if design.text == filename or normalizeDesignName(design.text) == target then
             return design
         end
+    end
+end
+
+function BookmarkChrome:resolveSavedDesign(saved_path, saved_name, designs)
+    if saved_path and lfs.attributes(saved_path, "mode") == "file" then
+        return saved_name, saved_path, false
+    end
+
+    local design = self:findDesignByName(saved_name or saved_path, designs)
+    if design then
+        return design.text, design.path, true
     end
 end
 
@@ -479,6 +529,18 @@ function BookmarkChrome:applyLook(filename, full_path, scale, mt, mr, remember_r
     self:applyDogearToLive()
     if message then
         UIManager:show(InfoMessage:new{ text = message, timeout = 2 })
+    end
+end
+
+function BookmarkChrome:saveCurrentCharmPath()
+    local name = G_reader_settings:readSetting(S_CUSTOM_ICON_NAME)
+    local icon = G_reader_settings:readSetting(S_CUSTOM_ICON)
+    if not name then return end
+
+    local resolved_name, resolved_path, repaired = self:resolveSavedDesign(icon, name)
+    if resolved_name and resolved_path and repaired then
+        G_reader_settings:saveSetting(S_CUSTOM_ICON, resolved_path)
+        G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, resolved_name)
     end
 end
 
@@ -516,9 +578,29 @@ function BookmarkChrome:applyDesign(filename, full_path)
     self:applyLook(filename, full_path, scale, 0, right, true, msg)
 end
 
+function BookmarkChrome:applyOriginalCorner(message)
+    local design = self:findDesignByName(FIRST_RUN_DEFAULT_CHARM)
+    if design then
+        self:applyLook(design.text, design.path, DEFAULT_NEW_SELECTION_SCALE, 0, 0, false, message)
+        return true
+    end
+
+    G_reader_settings:delSetting(S_CUSTOM_ICON)
+    G_reader_settings:delSetting(S_CUSTOM_ICON_NAME)
+    G_reader_settings:saveSetting(S_SCALE_FACTOR, DEFAULT_NEW_SELECTION_SCALE)
+    G_reader_settings:saveSetting(S_MARGIN_TOP, 0)
+    G_reader_settings:saveSetting(S_MARGIN_RIGHT, 0)
+    self:applyDogearToLive()
+    if message then
+        UIManager:show(InfoMessage:new{ text = message, timeout = 2 })
+    end
+    return false
+end
+
 function BookmarkChrome:saveCurrentLookToBook()
     local ds = self.ui and self.ui.doc_settings
     if not ds then return end
+    self:saveCurrentCharmPath()
     ds:saveSetting(B_CUSTOM_ICON, G_reader_settings:readSetting(S_CUSTOM_ICON))
     ds:saveSetting(B_CUSTOM_ICON_NAME, G_reader_settings:readSetting(S_CUSTOM_ICON_NAME))
     ds:saveSetting(B_SCALE_FACTOR, G_reader_settings:readSetting(S_SCALE_FACTOR) or DEFAULT_NEW_SELECTION_SCALE)
@@ -532,8 +614,13 @@ function BookmarkChrome:applyBookLook(show_message)
     if not ds then return false end
     local icon = ds:readSetting(B_CUSTOM_ICON)
     local name = ds:readSetting(B_CUSTOM_ICON_NAME)
-    if icon and name and lfs.attributes(icon, "mode") == "file" then
-        self:applyLook(name, icon,
+    local resolved_name, resolved_path, repaired = self:resolveSavedDesign(icon, name)
+    if resolved_name and resolved_path then
+        if repaired then
+            ds:saveSetting(B_CUSTOM_ICON, resolved_path)
+            ds:saveSetting(B_CUSTOM_ICON_NAME, resolved_name)
+        end
+        self:applyLook(resolved_name, resolved_path,
             ds:readSetting(B_SCALE_FACTOR) or DEFAULT_NEW_SELECTION_SCALE,
             ds:readSetting(B_MARGIN_TOP) or 0,
             ds:readSetting(B_MARGIN_RIGHT) or 0,
@@ -571,17 +658,20 @@ end
 function BookmarkChrome:setCurrentLookAsDefault()
     local icon = G_reader_settings:readSetting(S_CUSTOM_ICON)
     local name = G_reader_settings:readSetting(S_CUSTOM_ICON_NAME)
+    local resolved_name, resolved_path = self:resolveSavedDesign(icon, name)
 
-    if not icon or not name then
+    if not resolved_path or not resolved_name then
         UIManager:show(InfoMessage:new{ text = _("No charm is selected yet."), timeout = 2 })
         return
     end
 
-    G_reader_settings:saveSetting(S_DEFAULT_ICON, icon)
-    G_reader_settings:saveSetting(S_DEFAULT_ICON_NAME, name)
-    G_reader_settings:saveSetting(S_DEFAULT_SCALE, G_reader_settings:readSetting(S_SCALE_FACTOR) or (isRibbonDesign(name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
+    G_reader_settings:saveSetting(S_CUSTOM_ICON, resolved_path)
+    G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, resolved_name)
+    G_reader_settings:saveSetting(S_DEFAULT_ICON, resolved_path)
+    G_reader_settings:saveSetting(S_DEFAULT_ICON_NAME, resolved_name)
+    G_reader_settings:saveSetting(S_DEFAULT_SCALE, G_reader_settings:readSetting(S_SCALE_FACTOR) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
     G_reader_settings:saveSetting(S_DEFAULT_MARGIN_TOP, G_reader_settings:readSetting(S_MARGIN_TOP) or 0)
-    G_reader_settings:saveSetting(S_DEFAULT_MARGIN_RIGHT, G_reader_settings:readSetting(S_MARGIN_RIGHT) or (isRibbonDesign(name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
+    G_reader_settings:saveSetting(S_DEFAULT_MARGIN_RIGHT, G_reader_settings:readSetting(S_MARGIN_RIGHT) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
 
     UIManager:show(InfoMessage:new{ text = _("Default charm saved ✧"), timeout = 2 })
 end
@@ -656,8 +746,32 @@ end
 
 function BookmarkChrome:clearFavorites()
     G_reader_settings:saveSetting(S_FAVORITE_DESIGNS, {})
+    G_reader_settings:saveSetting(S_FAVORITE_INDEX, 0)
     self:refreshFavoriteCharmItems()
     UIManager:show(InfoMessage:new{ text = _("Favorite Charms cleared."), timeout = 2 })
+end
+
+function BookmarkChrome:applyNextFavoriteCharm()
+    local favorites = self:getFavoriteDesigns()
+    if #favorites == 0 then
+        UIManager:show(InfoMessage:new{ text = _("No favorite charms yet."), timeout = 2 })
+        return false
+    end
+
+    local designs = self:scanDesigns()
+    local start = G_reader_settings:readSetting(S_FAVORITE_INDEX) or 0
+    for step = 1, #favorites do
+        local index = ((start + step - 1) % #favorites) + 1
+        local design = self:findDesignByName(favorites[index], designs)
+        if design then
+            G_reader_settings:saveSetting(S_FAVORITE_INDEX, index)
+            self:applyDesign(design.text, design.path)
+            return true
+        end
+    end
+
+    UIManager:show(InfoMessage:new{ text = _("Favorite charm files are missing."), timeout = 2 })
+    return false
 end
 
 function BookmarkChrome:pruneMissingFavorites(show_message)
@@ -781,6 +895,13 @@ function BookmarkChrome:showFavoriteLooksMenu()
         text = _("Remove Current Charm"),
         callback = function()
             self:removeCurrentFromFavorites()
+        end,
+    })
+
+    table.insert(menu_items, {
+        text = _("Next Favorite Charm"),
+        callback = function()
+            self:applyNextFavoriteCharm()
         end,
     })
 
@@ -1035,7 +1156,7 @@ end
 --- Build a section label widget, left-aligned.
 local function sectionLabel(text, inner_w)
     return LeftContainer:new{
-        dimen = Geom:new{ w = inner_w, h = Screen:scaleBySize(28) },
+        dimen = Geom:new{ w = inner_w, h = screenScaleBySize(28) },
         TextWidget:new{
             text = text,
             face = Font:getFace("smallinfofont", 17),
@@ -1101,10 +1222,11 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
     end
     if icon_idx == nil then
         local saved_icon = G_reader_settings:readSetting(S_CUSTOM_ICON)
+        local saved_name = G_reader_settings:readSetting(S_CUSTOM_ICON_NAME)
         icon_idx = 0
-        if saved_icon then
+        if saved_icon or saved_name then
             for i, d in ipairs(designs) do
-                if d.path == saved_icon then
+                if d.path == saved_icon or normalizeDesignName(d.text) == normalizeDesignName(saved_name) then
                     icon_idx = i
                     break
                 end
@@ -1114,7 +1236,6 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
     -- Clamp icon_idx in case designs changed
     icon_idx = math.max(0, math.min(icon_idx, #designs))
 
-    local selected_icon_path = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].path or nil
     local selected_icon_name = (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].text or nil
 
     -- Rebuild: close and reopen with new parameters (passes designs to avoid rescan)
@@ -1155,12 +1276,12 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
     local hspan     = Size.span.horizontal_default
     local vspan_sm  = Size.span.vertical_default
     local vspan_lg  = Size.span.vertical_default * 2
-    local btn_h     = Screen:scaleBySize(52)
+    local btn_h     = screenScaleBySize(52)
 
     -- === DESIGN section ===
     local icon_btn_w  = math.floor(inner_w * 0.18)
     local icon_name_w = inner_w - icon_btn_w * 2 - hspan * 2
-    local icon_display = selected_icon_name or _("default")
+    local icon_display = selected_icon_name and self:displayLibraryTypeLabel(selected_icon_name) or _("Default KOReader corner")
 
     local icon_row = HorizontalGroup:new{
         align = "center",
@@ -1202,11 +1323,10 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
         return math.max(MIN_SCALE, math.min(MAX_SCALE, math.floor(v * 10 + 0.5) / 10))
     end
 
+    local scale_btn_w = math.floor((inner_w - value_box_w - hspan * 2) / 2)
     local scale_row = HorizontalGroup:new{
         align = "center",
-        Button:new{ text = "−0.5", width = step_btn_w, callback = function() rebuild(clampScale(scale - 0.5), mt_steps, mr_steps, icon_idx) end },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{ text = "−",  width = step_btn_w, callback = function() rebuild(clampScale(scale - 0.1), mt_steps, mr_steps, icon_idx) end },
+        Button:new{ text = _("Smaller"), width = scale_btn_w, callback = function() rebuild(clampScale(scale - 0.1), mt_steps, mr_steps, icon_idx) end },
         HorizontalSpan:new{ width = hspan },
         valueBox(
             TextWidget:new{
@@ -1217,9 +1337,7 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
             value_box_w, btn_h
         ),
         HorizontalSpan:new{ width = hspan },
-        Button:new{ text = "+",  width = step_btn_w, callback = function() rebuild(clampScale(scale + 0.1), mt_steps, mr_steps, icon_idx) end },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{ text = "+0.5", width = step_btn_w, callback = function() rebuild(clampScale(scale + 0.5), mt_steps, mr_steps, icon_idx) end },
+        Button:new{ text = _("Bigger"), width = scale_btn_w, callback = function() rebuild(clampScale(scale + 0.1), mt_steps, mr_steps, icon_idx) end },
     }
 
     -- === POSITION section ===
@@ -1261,15 +1379,103 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
         function() rebuild(scale, mt_steps, math.min(MAX_STEPS, mr_steps + 1), icon_idx) end
     )
 
-    -- === ACTION buttons ===
-    local act_btn_w = math.floor((inner_w - hspan * 3) / 4)
-    local actions_row = HorizontalGroup:new{
+    -- === QUICK PRESETS section ===
+    local preset_btn_w = math.floor((inner_w - hspan * 2) / 3)
+    local function selectedFilename()
+        return (icon_idx > 0 and designs[icon_idx]) and designs[icon_idx].text or G_reader_settings:readSetting(S_CUSTOM_ICON_NAME)
+    end
+    local function selectedIsRibbon()
+        return isRibbonDesign(selectedFilename())
+    end
+    local preset_row = HorizontalGroup:new{
         align = "center",
+        Button:new{
+            text = _("Corner"),
+            width = preset_btn_w,
+            callback = function()
+                rebuild(DEFAULT_NEW_SELECTION_SCALE, 0, 0, icon_idx)
+            end,
+        },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{
+            text = _("Ribbon"),
+            width = preset_btn_w,
+            callback = function()
+                rebuild(DEFAULT_RIBBON_SELECTION_SCALE, 0, DEFAULT_RIBBON_RIGHT_STEPS, icon_idx)
+            end,
+        },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{
+            text = _("Tucked"),
+            width = preset_btn_w,
+            callback = function()
+                if selectedIsRibbon() then
+                    rebuild(2.3, 0, DEFAULT_RIBBON_RIGHT_STEPS, icon_idx)
+                else
+                    rebuild(3.0, 0, 1, icon_idx)
+                end
+            end,
+        },
+    }
+
+    -- === ACTION buttons ===
+    local act_btn_w = math.floor((inner_w - hspan * 2) / 3)
+    local actions_row_top = HorizontalGroup:new{
+        align = "center",
+        Button:new{
+            text = _("Set Day ☀"),
+            width = act_btn_w,
+            callback = function()
+                self:saveCurrentAsDayPairCharm()
+            end,
+        },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{
+            text = _("Save"),
+            width = act_btn_w,
+            callback = function()
+                self._slider_originals = nil
+                UIManager:close(top_widget)
+                UIManager:setDirty("all", "flashui")
+                UIManager:scheduleIn(0, function()
+                    UIManager:show(InfoMessage:new{ text = _("Charm updated."), timeout = 2 })
+                end)
+            end,
+        },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{
+            text = _("Set Night ☾"),
+            width = act_btn_w,
+            callback = function()
+                self:saveCurrentAsNightPairCharm()
+            end,
+        },
+    }
+    local actions_row_bottom = HorizontalGroup:new{
+        align = "center",
+        Button:new{
+            text = _("Default"),
+            width = act_btn_w,
+            callback = function()
+                self:setCurrentLookAsDefault()
+            end,
+        },
+        HorizontalSpan:new{ width = hspan },
+        Button:new{
+            text = _("Reset"),
+            width = act_btn_w,
+            callback = function()
+                self._slider_originals = nil
+                UIManager:close(top_widget)
+                UIManager:setDirty("all", "flashui")
+                self:applyOriginalCorner(_("Original corner restored."))
+            end,
+        },
+        HorizontalSpan:new{ width = hspan },
         Button:new{
             text = _("Cancel"),
             width = act_btn_w,
             callback = function()
-                -- Revert the live dog ear to the original settings
                 local orig = self._slider_originals
                 if orig then
                     G_reader_settings:saveSetting(S_SCALE_FACTOR, orig.scale)
@@ -1289,44 +1495,10 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
                 UIManager:setDirty("all", "flashui")
             end,
         },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{
-            text = _("Reset"),
-            width = act_btn_w,
-            callback = function()
-                self._slider_originals = nil
-                UIManager:close(top_widget)
-                UIManager:setDirty("all", "flashui")
-                self:resetAll()
-                UIManager:show(InfoMessage:new{ text = _("Charm settings reset."), timeout = 2 })
-            end,
-        },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{
-            text = _("Position"),
-            width = act_btn_w,
-            callback = function()
-                self:resetPositionOnly()
-            end,
-        },
-        HorizontalSpan:new{ width = hspan },
-        Button:new{
-            text = _("Save"),
-            width = act_btn_w,
-            callback = function()
-                -- Settings already applied live; just commit and close
-                self._slider_originals = nil
-                UIManager:close(top_widget)
-                UIManager:setDirty("all", "flashui")
-                UIManager:scheduleIn(0, function()
-                    UIManager:show(InfoMessage:new{ text = _("Charm updated."), timeout = 2 })
-                end)
-            end,
-        },
     }
 
     -- === Compose dialog: Bookmark Studio ===
-    local card_pad = math.max(Size.padding.default, Screen:scaleBySize(10))
+    local card_pad = math.max(Size.padding.default, screenScaleBySize(10))
     local card_w = inner_w
 
     local header = VerticalGroup:new{
@@ -1338,7 +1510,7 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
         },
         VerticalSpan:new{ width = math.floor(vspan_sm / 2) },
         TextWidget:new{
-            text = _("Choose your mark, tune its presence, then settle it into the corner."),
+            text = _("Choose a charm, set its size, then tuck it into place."),
             face = Font:getFace("smallinfofont", 15),
             max_width = inner_w,
         },
@@ -1352,9 +1524,9 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
         VerticalGroup:new{
             align = "center",
             LeftContainer:new{
-                dimen = Geom:new{ w = card_w - card_pad * 2, h = Screen:scaleBySize(24) },
+                dimen = Geom:new{ w = card_w - card_pad * 2, h = screenScaleBySize(24) },
                 TextWidget:new{
-                    text = _("Choose Your Mark"),
+                    text = _("Choose Your Mark ◈"),
                     face = Font:getFace("smallinfofont", 17),
                     bold = true,
                 },
@@ -1372,9 +1544,9 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
         VerticalGroup:new{
             align = "center",
             LeftContainer:new{
-                dimen = Geom:new{ w = card_w - card_pad * 2, h = Screen:scaleBySize(24) },
+                dimen = Geom:new{ w = card_w - card_pad * 2, h = screenScaleBySize(24) },
                 TextWidget:new{
-                    text = _("Charm Size ✨"),
+                    text = _("Charm Size ↕"),
                     face = Font:getFace("smallinfofont", 17),
                     bold = true,
                 },
@@ -1392,7 +1564,7 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
         VerticalGroup:new{
             align = "center",
             LeftContainer:new{
-                dimen = Geom:new{ w = card_w - card_pad * 2, h = Screen:scaleBySize(24) },
+                dimen = Geom:new{ w = card_w - card_pad * 2, h = screenScaleBySize(24) },
                 TextWidget:new{
                     text = _("Charm Placement ⌖"),
                     face = Font:getFace("smallinfofont", 17),
@@ -1401,9 +1573,9 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
             },
             VerticalSpan:new{ width = math.floor(vspan_sm / 2) },
             LeftContainer:new{
-                dimen = Geom:new{ w = card_w - card_pad * 2, h = Screen:scaleBySize(36) },
+                dimen = Geom:new{ w = card_w - card_pad * 2, h = screenScaleBySize(36) },
                 TextWidget:new{
-                    text = _("Use gentle nudges only. Tight SVGs will touch the corner cleanly."),
+                    text = _("Top and Right nudge the charm in small steps."),
                     face = Font:getFace("smallinfofont", 14),
                     max_width = card_w - card_pad * 2,
                 },
@@ -1412,6 +1584,26 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
             top_margin_row,
             VerticalSpan:new{ width = vspan_sm },
             right_margin_row,
+        },
+    }
+
+    local presets_card = FrameContainer:new{
+        background = Blitbuffer.COLOR_WHITE,
+        bordersize = Size.border.default,
+        radius = Size.radius.button,
+        padding = card_pad,
+        VerticalGroup:new{
+            align = "center",
+            LeftContainer:new{
+                dimen = Geom:new{ w = card_w - card_pad * 2, h = screenScaleBySize(24) },
+                TextWidget:new{
+                    text = _("Quick Presets ✦"),
+                    face = Font:getFace("smallinfofont", 17),
+                    bold = true,
+                },
+            },
+            VerticalSpan:new{ width = vspan_sm },
+            preset_row,
         },
     }
 
@@ -1429,8 +1621,12 @@ function BookmarkChrome:showSizeSlider(scale, mt_steps, mr_steps, icon_idx, desi
             size_card,
             VerticalSpan:new{ width = vspan_sm },
             placement_card,
+            VerticalSpan:new{ width = vspan_sm },
+            presets_card,
             VerticalSpan:new{ width = vspan_lg },
-            actions_row,
+            actions_row_top,
+            VerticalSpan:new{ width = vspan_sm },
+            actions_row_bottom,
         },
     }
 
@@ -1607,15 +1803,16 @@ end
 
 
 function BookmarkChrome:onDispatcherRegisterActions()
-    Dispatcher:registerAction("booknook_charm_studio", { category="none", event="BookNookCharmStudio", title=_("Book Nook Charms: Charm Studio"), reader=true })
-    Dispatcher:registerAction("booknook_charm_library", { category="none", event="BookNookCharmLibrary", title=_("Book Nook Charms: Charm Library"), reader=true })
-    Dispatcher:registerAction("booknook_favorite_charms", { category="none", event="BookNookFavoriteCharms", title=_("Book Nook Charms: Favorite Charms"), reader=true })
-    Dispatcher:registerAction("booknook_charm_types", { category="none", event="BookNookCharmTypes", title=_("Book Nook Charms: Charm Types"), reader=true })
-    Dispatcher:registerAction("booknook_switch_day_night", { category="none", event="BookNookSwitchDayNight", title=_("Book Nook Charms: Switch day/night charm"), reader=true })
-    Dispatcher:registerAction("booknook_apply_day_charm", { category="none", event="BookNookApplyDayCharm", title=_("Book Nook Charms: Apply day charm"), reader=true })
-    Dispatcher:registerAction("booknook_apply_night_charm", { category="none", event="BookNookApplyNightCharm", title=_("Book Nook Charms: Apply night charm"), reader=true })
-    Dispatcher:registerAction("booknook_toggle_auto_pair", { category="none", event="BookNookToggleAutoPair", title=_("Book Nook Charms: Toggle auto day/night"), reader=true })
-    Dispatcher:registerAction("booknook_reset_charm", { category="none", event="BookNookResetCharm", title=_("Book Nook Charms: Reset charm"), reader=true })
+    safeRegisterAction("booknook_charm_studio", { category="none", event="BookNookCharmStudio", title=_("Book Nook Charms: Charm Studio"), reader=true })
+    safeRegisterAction("booknook_charm_library", { category="none", event="BookNookCharmLibrary", title=_("Book Nook Charms: Charm Library"), reader=true })
+    safeRegisterAction("booknook_favorite_charms", { category="none", event="BookNookFavoriteCharms", title=_("Book Nook Charms: Favorite Charms"), reader=true })
+    safeRegisterAction("booknook_next_favorite_charm", { category="none", event="BookNookNextFavoriteCharm", title=_("Book Nook Charms: Next favorite charm"), reader=true })
+    safeRegisterAction("booknook_charm_types", { category="none", event="BookNookCharmTypes", title=_("Book Nook Charms: Charm Types"), reader=true })
+    safeRegisterAction("booknook_switch_day_night", { category="none", event="BookNookSwitchDayNight", title=_("Book Nook Charms: Switch day/night charm"), reader=true })
+    safeRegisterAction("booknook_apply_day_charm", { category="none", event="BookNookApplyDayCharm", title=_("Book Nook Charms: Apply day charm"), reader=true })
+    safeRegisterAction("booknook_apply_night_charm", { category="none", event="BookNookApplyNightCharm", title=_("Book Nook Charms: Apply night charm"), reader=true })
+    safeRegisterAction("booknook_toggle_auto_pair", { category="none", event="BookNookToggleAutoPair", title=_("Book Nook Charms: Toggle auto day/night"), reader=true })
+    safeRegisterAction("booknook_reset_charm", { category="none", event="BookNookResetCharm", title=_("Book Nook Charms: Reset charm"), reader=true })
 end
 
 
@@ -1640,6 +1837,12 @@ end
 function BookmarkChrome:onBookNookFavoriteCharms()
         if not self:ensureReaderAction() then return true end
 self:showFavoriteLooksMenu()
+    return true
+end
+
+function BookmarkChrome:onBookNookNextFavoriteCharm()
+        if not self:ensureReaderAction() then return true end
+self:applyNextFavoriteCharm()
     return true
 end
 
@@ -1684,15 +1887,13 @@ end
 function BookmarkChrome:init()
     self:onDispatcherRegisterActions()
     if self.ui and self.ui.view and self.ui.menu then
-        self.ui.menu:registerToMainMenu(self)
-        self._booknook_menu_registered = true
+        self._booknook_menu_registered = safeRegisterMainMenu(self)
     end
 end
 
 function BookmarkChrome:onReaderReady()
     if not self._booknook_menu_registered and self.ui and self.ui.menu then
-        self.ui.menu:registerToMainMenu(self)
-        self._booknook_menu_registered = true
+        self._booknook_menu_registered = safeRegisterMainMenu(self)
     end
     self:ensureAutoPairDefaultOff()
     self:patchReaderDogear()
@@ -1708,30 +1909,36 @@ end
 function BookmarkChrome:saveCurrentAsDayPairCharm()
     local icon = G_reader_settings:readSetting(S_CUSTOM_ICON)
     local name = G_reader_settings:readSetting(S_CUSTOM_ICON_NAME)
-    if not icon or not name then
+    local resolved_name, resolved_path = self:resolveSavedDesign(icon, name)
+    if not resolved_path or not resolved_name then
         UIManager:show(InfoMessage:new{ text = _("No charm is selected yet."), timeout = 2 })
         return
     end
-    G_reader_settings:saveSetting(S_DAY_PAIR_ICON, icon)
-    G_reader_settings:saveSetting(S_DAY_PAIR_NAME, name)
-    G_reader_settings:saveSetting(S_DAY_PAIR_SCALE, G_reader_settings:readSetting(S_SCALE_FACTOR) or (isRibbonDesign(name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
+    G_reader_settings:saveSetting(S_CUSTOM_ICON, resolved_path)
+    G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, resolved_name)
+    G_reader_settings:saveSetting(S_DAY_PAIR_ICON, resolved_path)
+    G_reader_settings:saveSetting(S_DAY_PAIR_NAME, resolved_name)
+    G_reader_settings:saveSetting(S_DAY_PAIR_SCALE, G_reader_settings:readSetting(S_SCALE_FACTOR) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
     G_reader_settings:saveSetting(S_DAY_PAIR_TOP, G_reader_settings:readSetting(S_MARGIN_TOP) or 0)
-    G_reader_settings:saveSetting(S_DAY_PAIR_RIGHT, G_reader_settings:readSetting(S_MARGIN_RIGHT) or (isRibbonDesign(name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
+    G_reader_settings:saveSetting(S_DAY_PAIR_RIGHT, G_reader_settings:readSetting(S_MARGIN_RIGHT) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
     UIManager:show(InfoMessage:new{ text = _("Day charm saved ☀"), timeout = 2 })
 end
 
 function BookmarkChrome:saveCurrentAsNightPairCharm()
     local icon = G_reader_settings:readSetting(S_CUSTOM_ICON)
     local name = G_reader_settings:readSetting(S_CUSTOM_ICON_NAME)
-    if not icon or not name then
+    local resolved_name, resolved_path = self:resolveSavedDesign(icon, name)
+    if not resolved_path or not resolved_name then
         UIManager:show(InfoMessage:new{ text = _("No charm is selected yet."), timeout = 2 })
         return
     end
-    G_reader_settings:saveSetting(S_NIGHT_PAIR_ICON, icon)
-    G_reader_settings:saveSetting(S_NIGHT_PAIR_NAME, name)
-    G_reader_settings:saveSetting(S_NIGHT_PAIR_SCALE, G_reader_settings:readSetting(S_SCALE_FACTOR) or (isRibbonDesign(name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
+    G_reader_settings:saveSetting(S_CUSTOM_ICON, resolved_path)
+    G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, resolved_name)
+    G_reader_settings:saveSetting(S_NIGHT_PAIR_ICON, resolved_path)
+    G_reader_settings:saveSetting(S_NIGHT_PAIR_NAME, resolved_name)
+    G_reader_settings:saveSetting(S_NIGHT_PAIR_SCALE, G_reader_settings:readSetting(S_SCALE_FACTOR) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE))
     G_reader_settings:saveSetting(S_NIGHT_PAIR_TOP, G_reader_settings:readSetting(S_MARGIN_TOP) or 0)
-    G_reader_settings:saveSetting(S_NIGHT_PAIR_RIGHT, G_reader_settings:readSetting(S_MARGIN_RIGHT) or (isRibbonDesign(name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
+    G_reader_settings:saveSetting(S_NIGHT_PAIR_RIGHT, G_reader_settings:readSetting(S_MARGIN_RIGHT) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_RIGHT_STEPS or 0))
     UIManager:show(InfoMessage:new{ text = _("Night charm saved ☾"), timeout = 2 })
 end
 
@@ -1747,7 +1954,8 @@ function BookmarkChrome:applyPairCharm(which, silent)
 
     local icon = G_reader_settings:readSetting(icon_key)
     local name = G_reader_settings:readSetting(name_key)
-    if not icon or not name or lfs.attributes(icon, "mode") ~= "file" then
+    local resolved_name, resolved_path, repaired = self:resolveSavedDesign(icon, name)
+    if not resolved_path or not resolved_name then
         if icon or name then
             G_reader_settings:delSetting(icon_key)
             G_reader_settings:delSetting(name_key)
@@ -1760,9 +1968,13 @@ function BookmarkChrome:applyPairCharm(which, silent)
         end
         return false
     end
+    if repaired then
+        G_reader_settings:saveSetting(icon_key, resolved_path)
+        G_reader_settings:saveSetting(name_key, resolved_name)
+    end
 
-    self:applyLook(name, icon,
-        G_reader_settings:readSetting(scale_key) or (isRibbonDesign(name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE),
+    self:applyLook(resolved_name, resolved_path,
+        G_reader_settings:readSetting(scale_key) or (isRibbonDesign(resolved_name) and DEFAULT_RIBBON_SELECTION_SCALE or DEFAULT_NEW_SELECTION_SCALE),
         G_reader_settings:readSetting(top_key) or 0,
         G_reader_settings:readSetting(right_key) or (isRibbonDesign(name) and DEFAULT_RIBBON_RIGHT_STEPS or 0),
         false,
@@ -1996,6 +2208,11 @@ function BookmarkChrome:buildFavoriteCharmItems(skip_reference_update)
         text = _("Remove Current Charm"),
         keep_menu_open = false,
         callback = function() self:removeCurrentFromFavorites() end,
+    })
+    table.insert(items, {
+        text = _("Next Favorite Charm"),
+        keep_menu_open = false,
+        callback = function() self:applyNextFavoriteCharm() end,
     })
     table.insert(items, {
         text = _("Clear Favorite Charms"),
@@ -2244,6 +2461,48 @@ function BookmarkChrome:showHelp()
     })
 end
 
+function BookmarkChrome:showTroubleshooting()
+    local current_name = G_reader_settings:readSetting(S_CUSTOM_ICON_NAME)
+    local current_path = G_reader_settings:readSetting(S_CUSTOM_ICON)
+    local resolved_name, resolved_path, repaired = self:resolveSavedDesign(current_path, current_name)
+    if repaired then
+        G_reader_settings:saveSetting(S_CUSTOM_ICON, resolved_path)
+        G_reader_settings:saveSetting(S_CUSTOM_ICON_NAME, resolved_name)
+    end
+
+    local ds = self.ui and self.ui.doc_settings
+    local book_name = ds and ds:readSetting(B_CUSTOM_ICON_NAME) or nil
+    local book_path = ds and ds:readSetting(B_CUSTOM_ICON) or nil
+    local book_resolved = nil
+    if ds then
+        book_resolved = self:resolveSavedDesign(book_path, book_name) ~= nil
+    end
+
+    local default_name = G_reader_settings:readSetting(S_DEFAULT_ICON_NAME)
+    local default_path = G_reader_settings:readSetting(S_DEFAULT_ICON)
+    local default_resolved = self:resolveSavedDesign(default_path, default_name) ~= nil
+    local day_resolved = self:resolveSavedDesign(G_reader_settings:readSetting(S_DAY_PAIR_ICON), G_reader_settings:readSetting(S_DAY_PAIR_NAME)) ~= nil
+    local night_resolved = self:resolveSavedDesign(G_reader_settings:readSetting(S_NIGHT_PAIR_ICON), G_reader_settings:readSetting(S_NIGHT_PAIR_NAME)) ~= nil
+
+    local function yesno(value)
+        return value and _("yes") or _("no")
+    end
+
+    UIManager:show(InfoMessage:new{
+        text = _("Book Nook Charms Troubleshooting")
+            .. "\n\n" .. _("Version") .. ": " .. PLUGIN_VERSION
+            .. "\n" .. _("Current charm") .. ": " .. (resolved_name or current_name or _("none"))
+            .. "\n" .. _("Current file found") .. ": " .. yesno(resolved_path ~= nil)
+            .. "\n" .. _("Default charm found") .. ": " .. yesno(default_resolved)
+            .. "\n" .. _("Book charm found") .. ": " .. yesno(book_resolved)
+            .. "\n" .. _("Day pair found") .. ": " .. yesno(day_resolved)
+            .. "\n" .. _("Night pair found") .. ": " .. yesno(night_resolved)
+            .. "\n" .. _("Auto pair") .. ": " .. (self:autoPairEnabled() and _("on") or _("off"))
+            .. "\n" .. _("Scale") .. ": " .. tostring(G_reader_settings:readSetting(S_SCALE_FACTOR) or DEFAULT_NEW_SELECTION_SCALE)
+            .. "\n" .. _("Top / Right") .. ": " .. tostring(G_reader_settings:readSetting(S_MARGIN_TOP) or 0) .. " / " .. tostring(G_reader_settings:readSetting(S_MARGIN_RIGHT) or 0),
+    })
+end
+
 function BookmarkChrome:showCharmTypesMenu()
     local charm_types_menu
     charm_types_menu = Menu:new{
@@ -2287,6 +2546,11 @@ function BookmarkChrome:addToMainMenu(menu_items)
             {
                 text = _("Set a Charm ✧"),
                 sub_item_table = self:buildSetCharmItems(),
+            },
+            {
+                text = _("Troubleshooting ⚙"),
+                keep_menu_open = false,
+                callback = function() self:showTroubleshooting() end,
             },
             {
                 text = _("Help ✎"),

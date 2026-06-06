@@ -4,17 +4,29 @@ Book Nook Charms is a cozy little KOReader plugin that lets you decorate your re
 
 Pick a ribbon, tuck a dog-ear into the corner, save your favorites, switch between day and night looks, or choose a grayscale e-ink charm made for black-and-white readers.
 
-🍵 Support
+🖼️ Peek Inside
 
-If you enjoy my KOReader plugins and want to support future updates, you can buy me a coffee on Ko-fi. Your support helps fuel my curiosity and drive to make the KOReader experience more fun and personal.
+Here is a tiny look at Book Nook Charms in KOReader.
 
-[Support me on Ko-fi](https://ko-fi.com/kitanacode)
+![Book Nook Charms in the Typesetting menu](screenshots/typesetting-menu.png)
+
+![Book Nook Charms menu](screenshots/menu.png)
+
+![Charm Studio with a dog-ear charm](screenshots/charm-studio-dogear.png)
+
+![Charm Studio with a ribbon charm](screenshots/charm-studio-ribbon.png)
+
+![Book Nook Charms gesture actions](screenshots/gestures.png)
+
+![More Book Nook Charms gesture actions](screenshots/gestures-page-2.png)
 
 📱 Compatibility
 
 Book Nook Charms is made for KOReader and designed with Kobo readers in mind.
 
 It includes color charms for color screens and grayscale e-ink charms for black-and-white e-readers.
+
+It may also work on Kindle and older Kobo devices that run KOReader, but compatibility can depend on the KOReader version installed. If a KOReader build does not support gesture actions or a newer menu helper, Book Nook Charms tries to keep the regular menu features working and logs the missing piece instead of crashing.
 
 📦 Installation
 
@@ -33,35 +45,29 @@ koreader/plugins/booknookcharms.koplugin/
 - Choose ribbon bookmarks and dog-ear corner bookmarks.
 - Use night charms for darker reading themes.
 - Use e-ink charms for black-and-white e-reader screens.
-- Resize and move your charm in Charm Studio.
+- Resize, place, and use quick presets in Charm Studio.
+- Adjust charm size in gentle 0.1x steps.
+- Set your current charm as a day or night pair right from Charm Studio.
 - Save favorite charms so your sweetest picks stay close.
 - Save a charm for one book or set a default charm for everything.
 - Set a day charm and a night charm as a pair.
+- Cycle through favorite charms from the menu or a Reader gesture.
+- Repair saved charm paths automatically when possible.
+- Check saved charm status from Troubleshooting.
 - Start with a soft default dog-ear charm on first install.
 - See small text previews beside charm names in the menus.
 - Add your own charm files later.
 
-🖼️ Screenshots
-
-![Book Nook Charms menu](screenshots/menu.png)
-
-![Typesetting menu placement](screenshots/typesetting-menu.png)
-
-![Charm Studio with a dog-ear charm](screenshots/charm-studio-dogear.png)
-
-![Charm Studio with a ribbon charm](screenshots/charm-studio-ribbon.png)
-
-![Reader gesture actions](screenshots/gestures.png)
-
 ✨ Main Menu
 
-- Charm Studio ✨      resize, nudge, and place your charm
+- Charm Studio ✨      resize, place, and use quick presets
 - Charm Library ❤     browse the full charm collection
 - Favorite Charms ⭐   keep your favorite charms together
 - Charm Types ◇       browse by ribbon, dog-ear, night, or e-ink
 - Day/Night Pair ☀☾   choose a charm for day and one for night
 - Set a Charm ✧       save, reset, or set defaults
 - Help ✎              quick guide inside KOReader
+- Troubleshooting ⚙   check saved charm status
 - About ⓘ             version and creator info
 
 ◇ Charm Types
@@ -87,6 +93,26 @@ Oil Slick  dark gray
 Obsidian   near black
 
 Each e-ink shade has a ribbon version, a dog-ear version, and matching night versions.
+
+✨ Charm Studio
+
+Charm Studio is the little workshop for your current bookmark.
+
+Choose Your Mark ◈       switch between the default corner and your charm files
+Charm Size ↕             make the charm smaller or bigger in 0.1x steps
+Charm Placement ⌖        nudge the charm from the top or right edge
+Quick Presets ✦          jump to Corner, Ribbon, or Tucked placement
+
+Corner is best for full dog-ear bookmarks.
+Ribbon is best for hanging ribbon bookmarks.
+Tucked is a softer, smaller preset. For ribbons, it keeps the ribbon tucked at the top. For dog-ears, it uses a smaller 3.0x corner look while still touching the top.
+
+The Save button keeps the current Studio changes.
+Set Day stores the current charm as your day charm for Day/Night Pair.
+Set Night stores the current charm as your night charm for Day/Night Pair.
+Default makes the current charm your default for books that do not have their own saved charm.
+Reset restores the original KOReader corner bookmark.
+Cancel closes Charm Studio and puts things back the way they were before you opened it.
 
 🔖 Charm Menu Symbols
 
@@ -140,6 +166,7 @@ Restart KOReader after installing or updating the plugin. Then go to KOReader's 
 Book Nook Charms: Charm Studio              open size and placement controls
 Book Nook Charms: Charm Library             browse all charms
 Book Nook Charms: Favorite Charms           open your saved favorites
+Book Nook Charms: Next favorite charm       cycle through saved favorites
 Book Nook Charms: Charm Types               browse ribbons, dog-ears, night, and e-ink charms
 Book Nook Charms: Switch day/night charm    swap between your saved day and night pair
 Book Nook Charms: Apply day charm           apply your saved day charm
@@ -151,6 +178,9 @@ Book Nook Charms: Reset charm               restore the default charm
 
 - Restart KOReader after installing or updating.
 - Gesture actions appear under KOReader's Reader actions.
+- On Kindle or older Kobo devices, gesture actions may depend on the KOReader version.
+- If a saved charm path changes, Book Nook Charms tries to repair it by filename.
+- Use Troubleshooting if a saved charm does not appear after restart.
 - First install starts with a soft original dog-ear charm.
 - Missing favorite charms can be cleaned up from Favorite Charms.
 - About shows the plugin version and creator.
@@ -161,11 +191,23 @@ Book Nook Charms: Reset charm               restore the default charm
 
 - If a charm feels too big or too small, open Charm Studio.
 - If a charm sits too far from the corner, nudge its placement in Charm Studio.
+- Use Set Day or Set Night in Charm Studio when you want the current charm to become part of your day/night pair.
 - Use Favorite Charms for the ones you love most.
 - Use Night Charms when your reading theme is dark.
 - Use E-ink Charms for black-and-white e-readers or when you want extra-clear grayscale contrast.
 - For new e-ink charms, avoid colors that only work on color screens.
 - If you remove charm files later, use Favorite Charms to clean up missing favorites.
+- In Charm Studio, Tucked keeps the charm touching the top while softening its size and side placement.
+
+🛠️ Reporting Compatibility Issues
+
+If something does not work on Kindle or an older Kobo, please include:
+
+- Device model
+- KOReader version
+- What you tapped or changed
+- Whether Book Nook Charms appears in the reader menu
+- Any useful lines from `crash.log`
 
 💌 A Little Note
 
