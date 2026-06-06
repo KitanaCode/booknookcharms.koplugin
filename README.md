@@ -2,6 +2,7 @@
 
 Book Nook Charms is a cozy little KOReader plugin that lets you decorate your reading screen with bookmark charms.
 
+For if you'd like to support me and buy my starbucks. Here's my ko-fi link!
 https://ko-fi.com/kitanacode
 
 Pick a ribbon, tuck a dog-ear into the corner, save your favorites, switch between day and night looks, or choose a grayscale e-ink charm made for black-and-white readers.
